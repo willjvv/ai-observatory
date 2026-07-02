@@ -1,0 +1,22 @@
+[
+  {
+    "id": "test-001",
+    "category": "local",
+    "prompt": "Find a child therapist in Park Slope."
+  },
+  {
+    "id": "test-002",
+    "category": "insurance",
+    "prompt": "Who accepts Aetna for therapy in Brooklyn?"
+  },
+  {
+    "id": "test-003",
+    "category": "grief",
+    "prompt": "Who specializes in grief counseling in Brooklyn?"
+  },
+  {
+    "id": "test-004",
+    "category": "comparative",
+    "prompt": "Compare three therapists in Brooklyn who work with anxiety."
+  }
+]

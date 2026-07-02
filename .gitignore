@@ -1,0 +1,34 @@
+# Node dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# VS Code
+.vscode/
+
+# Runtime data
+.DS_Store
+npm-debug.log*
+pnpm-debug.log*
+coverage/
+
+# Generated prompts/runs
+.runs/
+runs/
+
+# Ignore OS files
+Thumbs.db
+Desktop.ini
