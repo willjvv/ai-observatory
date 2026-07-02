@@ -5,21 +5,10 @@ A small human-in-the-loop Playwright prototype for weekly browser-based prompt t
 ## What it does
 
 - Loads prompts from a JSON file
-- Shuffles the order each run
+- Reads run behavior from YAML config
 - Connects to an already-open Chrome session through remote debugging
 - Sends one prompt at a time in ChatGPT
-- Saves raw responses as JSON
-- Records run state so you can resume after a failure
-
-## Recommended browser setup
-
-Use a dedicated Chrome profile launched with remote debugging:
-
-```bat
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\AIObservatory\ChromeProfile"
-```
-
-Then log into ChatGPT manually in that browser window and keep it open.
+- Saves one run manifest, one prompt snapshot, one state file, and one flat response file per prompt repeat
 
 ## Install
 
@@ -31,15 +20,21 @@ npx playwright install chromium
 ## Run
 
 ```bash
-npm run run -- --prompts prompts/example.json
+npm run run
 ```
 
-Optional flags:
+Optional config profiles:
 
-- `--run-id=2026-07-02T120000Z`
-- `--debug-port=9222`
-- `--max-prompts=50`
-- `--start-index=0`
+```bash
+npm run quick
+npm run weekly
+```
+
+Or explicitly:
+
+```bash
+npm run run -- --config=config/weekly.yaml
+```
 
 ## Output
 
@@ -47,8 +42,14 @@ Each run gets its own folder:
 
 ```text
 runs/<runId>/
+  run.json
+  prompts.json
   state.json
-  chatgpt/
-    001-test-001.json
-    002-test-003.json
+  responses/
+    repeat-01/
+      001-test-001.json
+      002-test-002.json
+    repeat-02/
+      001-test-001.json
+      002-test-002.json
 ```
