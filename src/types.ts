@@ -4,32 +4,44 @@ export type PromptItem = {
   category?: string;
 };
 
-export type PromptRunRecord = {
+export type PromptResponseRecord = {
   runId: string;
-  promptIndex: number;
-  prompt: PromptItem;
-  platform: "chatgpt";
+  repeatIndex: number;
+  repeatLabel: string;
+  promptOrder: number;
+  promptId: string;
+  promptText: string;
+  promptCategory?: string;
+  provider: string;
   startedAt: string;
   finishedAt: string;
-  responseText: string;
+  durationMs: number;
   pageUrl: string;
   status: "ok" | "error" | "timeout";
+  responseText: string;
   error?: string;
+};
+
+export type RunManifest = {
+  runId: string;
+  createdAt: string;
+  updatedAt: string;
+  provider: string;
+  promptFile: string;
+  promptCount: number;
+  repeats: number;
+  maxPrompts: number | null;
+  shuffle: boolean;
+  startIndex: number;
+  config: unknown;
 };
 
 export type RunState = {
   runId: string;
   createdAt: string;
   updatedAt: string;
+  nextRepeat: number;
   nextIndex: number;
   completedPromptIds: string[];
   failedPromptIds: string[];
-};
-
-export type RunnerOptions = {
-  promptsPath: string;
-  runId: string;
-  debugPort: number;
-  maxPrompts?: number;
-  startIndex?: number;
 };

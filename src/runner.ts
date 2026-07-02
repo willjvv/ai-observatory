@@ -1,24 +1,73 @@
 import path from "node:path";
 import { connectBrowser } from "./browser.js";
 import { loadConfig } from "./config/config.js";
+import { validateConfig } from "./config/validate.js";
 import { loadPrompts, shuffle } from "./prompts.js";
 import { openChatGPT, sendPromptAndCapture, startNewChatIfPossible } from "./chatgpt.js";
 import { readJsonIfExists, writeJson, ensureDir } from "./storage.js";
-import { RunState, RunnerOptions } from "./types.js";
-import { validateConfig } from "./config/validate.js";
+import { PromptItem, PromptResponseRecord, RunManifest, RunState } from "./types.js";
 
-async function loadState(statePath: string, runId: string): Promise<RunState> {
-  const existing = await readJsonIfExists<RunState>(statePath);
-  if (existing) return existing;
+function parseRuntimeArgs(argv: string[]) {
+  const result = {
+    configFile: "config/default.yaml",
+    runId: ""
+  };
 
+  for (const arg of argv.slice(2)) {
+    if (arg.startsWith("--config=")) {
+      result.configFile = arg.slice("--config=".length);
+    } else if (arg.startsWith("--run-id=")) {
+      result.runId = arg.slice("--run-id=".length);
+    }
+  }
+
+  return result;
+}
+
+function createRunId(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function safeSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+function repeatLabel(repeatIndex: number): string {
+  return `repeat-${String(repeatIndex).padStart(2, "0")}`;
+}
+
+function runRecordPath(runDir: string, repeatIndex: number, promptOrder: number, promptId: string): string {
+  const safeId = safeSegment(promptId);
+  const num = String(promptOrder).padStart(3, "0");
+  return path.join(runDir, "responses", repeatLabel(repeatIndex), `${num}-${safeId}.json`);
+}
+
+async function loadState(statePath: string, runId: string, startIndex: number): Promise<RunState> {
+  const existing = await readJsonIfExists<Partial<RunState>>(statePath);
   const now = new Date().toISOString();
+
+  if (!existing) {
+    return {
+      runId,
+      createdAt: now,
+      updatedAt: now,
+      nextRepeat: 1,
+      nextIndex: startIndex,
+      completedPromptIds: [],
+      failedPromptIds: []
+    };
+  }
+
   return {
-    runId,
-    createdAt: now,
-    updatedAt: now,
-    nextIndex: 0,
-    completedPromptIds: [],
-    failedPromptIds: []
+    runId: existing.runId ?? runId,
+    createdAt: existing.createdAt ?? now,
+    updatedAt: existing.updatedAt ?? now,
+    nextRepeat: typeof existing.nextRepeat === "number" && existing.nextRepeat >= 1 ? existing.nextRepeat : 1,
+    nextIndex: typeof existing.nextIndex === "number" && existing.nextIndex >= 0 ? existing.nextIndex : startIndex,
+    completedPromptIds: Array.isArray(existing.completedPromptIds) ? existing.completedPromptIds : [],
+    failedPromptIds: Array.isArray(existing.failedPromptIds) ? existing.failedPromptIds : []
   };
 }
 
@@ -26,99 +75,102 @@ async function saveState(statePath: string, state: RunState): Promise<void> {
   await writeJson(statePath, state);
 }
 
-function runRecordPath(runDir: string, repeat: number, index: number, promptId: string): string {
-  const safeId = promptId.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const num = String(index + 1).padStart(3, "0");
-  return path.join(runDir, `repeat-${repeat}`, "chatgpt", `${num}-${safeId}.json`);
-}
-
 async function main() {
-  const config = loadConfig();
+  const { configFile, runId: cliRunId } = parseRuntimeArgs(process.argv);
+  const config = loadConfig(configFile);
 
   validateConfig(config);
 
-  const runId = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-");
+  const runId = cliRunId || createRunId();
+  const promptsAll = await loadPrompts(config.run.promptFile);
+  const preparedPrompts = config.run.shuffle ? shuffle(promptsAll) : promptsAll;
+  const prompts = config.run.maxPrompts === null ? preparedPrompts : preparedPrompts.slice(0, config.run.maxPrompts);
 
-  const promptsAll = await loadPrompts(
-      config.run.promptFile
-  );
-
-  const shuffled = config.run.shuffle
-      ? shuffle(promptsAll)
-      : promptsAll;
-
-  const prompts =
-      config.run.maxPrompts === null
-          ? shuffled
-          : shuffled.slice(0, config.run.maxPrompts);
-
-  const runDir = path.join(
-      config.output.runsDir,
-      runId
-  );
+  const runDir = path.join(config.output.runsDir, runId);
   const statePath = path.join(runDir, "state.json");
+  const runPath = path.join(runDir, "run.json");
+  const promptsSnapshotPath = path.join(runDir, "prompts.json");
 
-  await ensureDir(path.join(runDir, "chatgpt"));
-  let state = await loadState(statePath, runId);
-  if (config.run.startIndex > 0) {
-    state.nextIndex = Math.max(state.nextIndex, config.run.startIndex);
-  }
+  await ensureDir(runDir);
+  await ensureDir(path.join(runDir, "responses"));
+
+  const now = new Date().toISOString();
+  const manifest: RunManifest = {
+    runId,
+    createdAt: now,
+    updatedAt: now,
+    provider: config.provider,
+    promptFile: config.run.promptFile,
+    promptCount: prompts.length,
+    repeats: config.run.repeats,
+    maxPrompts: config.run.maxPrompts,
+    shuffle: config.run.shuffle,
+    startIndex: config.run.startIndex,
+    config
+  };
+
+  await writeJson(runPath, manifest);
+  await writeJson(promptsSnapshotPath, prompts);
+
+  let state = await loadState(statePath, runId, config.run.startIndex);
   await saveState(statePath, state);
 
   const browser = await connectBrowser(config.browser.debugPort);
-  const context = browser.contexts()[0] ?? await browser.newContext();
+  const context = browser.contexts()[0] ?? (await browser.newContext());
 
   console.log(`Connected to Chrome on port ${config.browser.debugPort}.`);
   console.log(`Loaded ${prompts.length} prompts.`);
   console.log(`Run ID: ${runId}`);
+  console.log(`Output: ${runDir}`);
 
-  for (
-    let repeat = 0;
-    repeat < config.run.repeats;
-    repeat++
-  ) {
+  for (let repeatIndex = state.nextRepeat; repeatIndex <= config.run.repeats; repeatIndex += 1) {
+    const resumeIndex = repeatIndex === state.nextRepeat ? state.nextIndex : 0;
+
+    state.nextRepeat = repeatIndex;
+    state.nextIndex = resumeIndex;
+    state.updatedAt = new Date().toISOString();
+    await saveState(statePath, state);
 
     console.log("");
+    console.log(`========== Repeat ${repeatIndex} of ${config.run.repeats} ==========`);
 
-    console.log(
-      `========== Run ${repeat + 1} of ${config.run.repeats} ==========`
-    );
+    for (let index = state.nextIndex; index < prompts.length; index += 1) {
+      const prompt: PromptItem = prompts[index];
+      const startedAtMs = Date.now();
+      const startedAt = new Date(startedAtMs).toISOString();
 
-    state.nextIndex = 0;
-
-    for (
-      let index = state.nextIndex;
-      index < prompts.length;
-      index++
-    ) {
-      const prompt = prompts[index];
-      const startedAt = new Date().toISOString();
-
-      console.log(`\n[${index + 1}/${prompts.length}] ${prompt.id}: ${prompt.prompt}`);
+      console.log(`
+[${repeatIndex}/${config.run.repeats} ${index + 1}/${prompts.length}] ${prompt.id}: ${prompt.prompt}`);
 
       const page = await context.newPage();
+
       try {
         await openChatGPT(page);
-        await startNewChatIfPossible(page);
+        if (config.behavior.openNewChatEachPrompt) {
+          await startNewChatIfPossible(page);
+        }
 
         const responseText = await sendPromptAndCapture(page, prompt.prompt);
-
         const finishedAt = new Date().toISOString();
-        const record = {
-          runId: runId,
-          promptIndex: index,
-          prompt,
-          platform: "chatgpt" as const,
+
+        const record: PromptResponseRecord = {
+          runId,
+          repeatIndex,
+          repeatLabel: repeatLabel(repeatIndex),
+          promptOrder: index + 1,
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          promptCategory: prompt.category,
+          provider: config.provider,
           startedAt,
           finishedAt,
-          responseText,
+          durationMs: Date.now() - startedAtMs,
           pageUrl: page.url(),
-          status: "ok" as const
+          status: "ok",
+          responseText
         };
 
-        await writeJson(runRecordPath(runDir, repeat, index, prompt.id), record);
+        await writeJson(runRecordPath(runDir, repeatIndex, index + 1, prompt.id), record);
 
         state.nextIndex = index + 1;
         if (!state.completedPromptIds.includes(prompt.id)) state.completedPromptIds.push(prompt.id);
@@ -128,32 +180,43 @@ async function main() {
         console.log(`Saved ${prompt.id}.`);
       } catch (err: any) {
         const finishedAt = new Date().toISOString();
-        const record = {
-          runId: runId,
-          repeat: repeat,
-          promptIndex: index,
-          prompt,
-          platform: "chatgpt" as const,
+        const message = err?.message ?? String(err);
+
+        const record: PromptResponseRecord = {
+          runId,
+          repeatIndex,
+          repeatLabel: repeatLabel(repeatIndex),
+          promptOrder: index + 1,
+          promptId: prompt.id,
+          promptText: prompt.prompt,
+          promptCategory: prompt.category,
+          provider: config.provider,
           startedAt,
           finishedAt,
-          responseText: "",
+          durationMs: Date.now() - startedAtMs,
           pageUrl: page.url(),
-          status: "error" as const,
-          error: err?.message ?? String(err)
+          status: message.toLowerCase().includes("timed out") ? "timeout" : "error",
+          responseText: "",
+          error: message
         };
 
-        await writeJson(runRecordPath(runDir, repeat + 1, index, prompt.id), record);
+        await writeJson(runRecordPath(runDir, repeatIndex, index + 1, prompt.id), record);
 
         state.nextIndex = index + 1;
         if (!state.failedPromptIds.includes(prompt.id)) state.failedPromptIds.push(prompt.id);
         state.updatedAt = finishedAt;
         await saveState(statePath, state);
 
-        console.error(`Failed ${prompt.id}:`, err?.message ?? err);
+        console.error(`Failed ${prompt.id}:`, message);
       } finally {
         await page.close().catch(() => {});
       }
     }
+
+    state.nextRepeat = repeatIndex + 1;
+    state.nextIndex = 0;
+    state.updatedAt = new Date().toISOString();
+    await saveState(statePath, state);
   }
 
   console.log("\nDone.");

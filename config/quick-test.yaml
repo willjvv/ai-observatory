@@ -7,9 +7,9 @@ browser:
 
 run:
   promptFile: prompts/example.json
-  repeats: 2
-  maxPrompts: null
-  shuffle: true
+  repeats: 1
+  maxPrompts: 2
+  shuffle: false
   startIndex: 0
 
 behavior:

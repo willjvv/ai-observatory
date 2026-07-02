@@ -6,8 +6,8 @@ browser:
   debugPort: 9222
 
 run:
-  promptFile: prompts/example.json
-  repeats: 2
+  promptFile: prompts/weekly.json
+  repeats: 5
   maxPrompts: null
   shuffle: true
   startIndex: 0

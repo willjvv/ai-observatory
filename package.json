@@ -1,10 +1,12 @@
 {
   "name": "ai-observatory-browser-runner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "run": "tsx src/runner.ts",
+    "quick": "tsx src/runner.ts --config=config/quick-test.yaml",
+    "weekly": "tsx src/runner.ts --config=config/weekly.yaml",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
