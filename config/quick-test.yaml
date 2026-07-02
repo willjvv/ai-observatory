@@ -1,0 +1,19 @@
+version: 1
+
+provider: chatgpt
+
+browser:
+  debugPort: 9222
+
+run:
+  promptFile: prompts/example.json
+  repeats: 1
+  maxPrompts: 2
+  shuffle: false
+  startIndex: 0
+
+behavior:
+  openNewChatEachPrompt: true
+
+output:
+  runsDir: runs
