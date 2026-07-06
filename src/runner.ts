@@ -30,18 +30,14 @@ function createRunId(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
-function safeSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+function promptDirectoryName(promptOrder: number): string {
+  return `prompt-${String(promptOrder).padStart(3, "0")}`;
 }
 
-function repeatLabel(repeatIndex: number): string {
-  return `repeat-${String(repeatIndex).padStart(2, "0")}`;
-}
-
-function runRecordPath(runDir: string, repeatIndex: number, promptOrder: number, promptId: string): string {
-  const safeId = safeSegment(promptId);
-  const num = String(promptOrder).padStart(3, "0");
-  return path.join(runDir, "responses", repeatLabel(repeatIndex), `${num}-${safeId}.json`);
+function runRecordPath(runDir: string, promptOrder: number, repeatIndex: number): string {
+  const promptNum = String(promptOrder).padStart(3, "0");
+  const repeatNum = String(repeatIndex).padStart(3, "0");
+  return path.join(runDir, "responses", promptDirectoryName(promptOrder), `${promptNum}-test-${repeatNum}.json`);
 }
 
 async function loadState(statePath: string, runId: string, startIndex: number): Promise<RunState> {
@@ -123,24 +119,19 @@ async function main() {
   console.log(`Run ID: ${runId}`);
   console.log(`Output: ${runDir}`);
 
-  for (let repeatIndex = state.nextRepeat; repeatIndex <= config.run.repeats; repeatIndex += 1) {
-    const resumeIndex = repeatIndex === state.nextRepeat ? state.nextIndex : 0;
-
-    state.nextRepeat = repeatIndex;
-    state.nextIndex = resumeIndex;
-    state.updatedAt = new Date().toISOString();
-    await saveState(statePath, state);
+  for (let promptIndex = state.nextIndex; promptIndex < prompts.length; promptIndex += 1) {
+    const prompt: PromptItem = prompts[promptIndex];
+    const startRepeat = promptIndex === state.nextIndex ? state.nextRepeat : 1;
 
     console.log("");
-    console.log(`========== Repeat ${repeatIndex} of ${config.run.repeats} ==========`);
+    console.log(`========== Prompt ${promptIndex + 1} of ${prompts.length}: ${prompt.id} ==========`);
 
-    for (let index = state.nextIndex; index < prompts.length; index += 1) {
-      const prompt: PromptItem = prompts[index];
+    for (let repeatIndex = startRepeat; repeatIndex <= config.run.repeats; repeatIndex += 1) {
       const startedAtMs = Date.now();
       const startedAt = new Date(startedAtMs).toISOString();
 
       console.log(`
-[${repeatIndex}/${config.run.repeats} ${index + 1}/${prompts.length}] ${prompt.id}: ${prompt.prompt}`);
+[${promptIndex + 1}/${prompts.length} repeat ${repeatIndex}/${config.run.repeats}] ${prompt.id}: ${prompt.prompt}`);
 
       const page = await context.newPage();
 
@@ -156,8 +147,8 @@ async function main() {
         const record: PromptResponseRecord = {
           runId,
           repeatIndex,
-          repeatLabel: repeatLabel(repeatIndex),
-          promptOrder: index + 1,
+          promptLabel: promptDirectoryName(promptIndex + 1),
+          promptOrder: promptIndex + 1,
           promptId: prompt.id,
           promptText: prompt.prompt,
           promptCategory: prompt.category,
@@ -170,14 +161,15 @@ async function main() {
           responseText
         };
 
-        await writeJson(runRecordPath(runDir, repeatIndex, index + 1, prompt.id), record);
+        await writeJson(runRecordPath(runDir, promptIndex + 1, repeatIndex), record);
 
-        state.nextIndex = index + 1;
+        state.nextIndex = promptIndex;
+        state.nextRepeat = repeatIndex + 1;
         if (!state.completedPromptIds.includes(prompt.id)) state.completedPromptIds.push(prompt.id);
         state.updatedAt = finishedAt;
         await saveState(statePath, state);
 
-        console.log(`Saved ${prompt.id}.`);
+        console.log(`Saved ${prompt.id} repeat ${repeatIndex}.`);
       } catch (err: any) {
         const finishedAt = new Date().toISOString();
         const message = err?.message ?? String(err);
@@ -185,8 +177,8 @@ async function main() {
         const record: PromptResponseRecord = {
           runId,
           repeatIndex,
-          repeatLabel: repeatLabel(repeatIndex),
-          promptOrder: index + 1,
+          promptLabel: promptDirectoryName(promptIndex + 1),
+          promptOrder: promptIndex + 1,
           promptId: prompt.id,
           promptText: prompt.prompt,
           promptCategory: prompt.category,
@@ -200,21 +192,22 @@ async function main() {
           error: message
         };
 
-        await writeJson(runRecordPath(runDir, repeatIndex, index + 1, prompt.id), record);
+        await writeJson(runRecordPath(runDir, promptIndex + 1, repeatIndex), record);
 
-        state.nextIndex = index + 1;
+        state.nextIndex = promptIndex;
+        state.nextRepeat = repeatIndex + 1;
         if (!state.failedPromptIds.includes(prompt.id)) state.failedPromptIds.push(prompt.id);
         state.updatedAt = finishedAt;
         await saveState(statePath, state);
 
-        console.error(`Failed ${prompt.id}:`, message);
+        console.error(`Failed ${prompt.id} repeat ${repeatIndex}:`, message);
       } finally {
         await page.close().catch(() => {});
       }
     }
 
-    state.nextRepeat = repeatIndex + 1;
-    state.nextIndex = 0;
+    state.nextIndex = promptIndex + 1;
+    state.nextRepeat = 1;
     state.updatedAt = new Date().toISOString();
     await saveState(statePath, state);
   }

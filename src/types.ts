@@ -7,7 +7,7 @@ export type PromptItem = {
 export type PromptResponseRecord = {
   runId: string;
   repeatIndex: number;
-  repeatLabel: string;
+  promptLabel: string;
   promptOrder: number;
   promptId: string;
   promptText: string;

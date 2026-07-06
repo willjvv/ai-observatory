@@ -46,10 +46,12 @@ runs/<runId>/
   prompts.json
   state.json
   responses/
-    repeat-01/
+    prompt-001/
       001-test-001.json
+      001-test-002.json
+      001-test-003.json
+    prompt-002/
+      002-test-001.json
       002-test-002.json
-    repeat-02/
-      001-test-001.json
-      002-test-002.json
+      002-test-003.json
 ```
